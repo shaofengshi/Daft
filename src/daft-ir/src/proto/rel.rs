@@ -13,7 +13,7 @@ use crate::{
 mod ir {
     pub use crate::*;
     pub use common_io_config::{
-        AzureConfig, GCSConfig, HTTPConfig, HuggingFaceConfig, IOConfig, S3Config, UnityConfig,
+        AzureConfig, GCSConfig, GravitinoConfig, HTTPConfig, HuggingFaceConfig, IOConfig, S3Config, UnityConfig,
     };
     pub use common_scan_info::Pushdowns;
 }
@@ -831,6 +831,7 @@ impl ToFromProto for ir::IOConfig {
         let gcs = ir::GCSConfig::from_proto(non_null!(message.gcs))?;
         let http = ir::HTTPConfig::from_proto(non_null!(message.http))?;
         let unity = ir::UnityConfig::from_proto(non_null!(message.unity))?;
+        let gravitino = ir::GravitinoConfig::from_proto(non_null!(message.gravitino))?;
         let hf = ir::HuggingFaceConfig::from_proto(non_null!(message.hf))?;
 
         Ok(Self {
@@ -839,6 +840,7 @@ impl ToFromProto for ir::IOConfig {
             gcs,
             http,
             unity,
+            gravitino,
             hf,
         })
     }
@@ -849,6 +851,7 @@ impl ToFromProto for ir::IOConfig {
         let gcs = self.gcs.to_proto()?;
         let http = self.http.to_proto()?;
         let unity = self.unity.to_proto()?;
+        let gravitino = self.gravitino.to_proto()?;
         let hf = self.hf.to_proto()?;
 
         Ok(proto::IoConfig {
@@ -857,6 +860,7 @@ impl ToFromProto for ir::IOConfig {
             gcs: Some(gcs),
             http: Some(http),
             unity: Some(unity),
+            gravitino: Some(gravitino),
             hf: Some(hf),
         })
     }
@@ -1042,6 +1046,35 @@ impl ToFromProto for ir::UnityConfig {
     fn to_proto(&self) -> ProtoResult<Self::Message> {
         Ok(proto::UnityConfig {
             endpoint: self.endpoint.clone(),
+            token: self.token.as_ref().map(|s| s.as_string().clone()),
+        })
+    }
+}
+
+impl ToFromProto for ir::GravitinoConfig {
+    type Message = proto::GravitinoConfig;
+
+    fn from_proto(message: Self::Message) -> ProtoResult<Self>
+    where
+        Self: Sized,
+    {
+        Ok(Self {
+            endpoint: message.endpoint,
+            metalake_name: message.metalake_name,
+            auth_type: message.auth_type,
+            username: message.username,
+            password: message.password.map(|s| s.into()),
+            token: message.token.map(|s| s.into()),
+        })
+    }
+
+    fn to_proto(&self) -> ProtoResult<Self::Message> {
+        Ok(proto::GravitinoConfig {
+            endpoint: self.endpoint.clone(),
+            metalake_name: self.metalake_name.clone(),
+            auth_type: self.auth_type.clone(),
+            username: self.username.clone(),
+            password: self.password.as_ref().map(|s| s.as_string().clone()),
             token: self.token.as_ref().map(|s| s.as_string().clone()),
         })
     }

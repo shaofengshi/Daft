@@ -3,6 +3,7 @@ from __future__ import annotations
 from daft.daft import (
     AzureConfig,
     GCSConfig,
+    GravitinoConfig,
     IOConfig,
     HTTPConfig,
     S3Config,
@@ -36,6 +37,7 @@ __all__ = [
     "DataSource",
     "DataSourceTask",
     "GCSConfig",
+    "GravitinoConfig",
     "HTTPConfig",
     "HuggingFaceConfig",
     "IOConfig",

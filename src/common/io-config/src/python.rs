@@ -168,6 +168,12 @@ pub struct UnityConfig {
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[pyclass(module = "daft.daft")]
+pub struct GravitinoConfig {
+    pub config: crate::GravitinoConfig,
+}
+
+#[derive(Clone, Default, Serialize, Deserialize)]
+#[pyclass(module = "daft.daft")]
 pub struct HuggingFaceConfig {
     pub config: crate::HuggingFaceConfig,
 }
@@ -176,12 +182,14 @@ pub struct HuggingFaceConfig {
 impl IOConfig {
     #[new]
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         s3=None,
         azure=None,
         gcs=None,
         http=None,
         unity=None,
+        gravitino=None,
         hf=None
     ))]
     pub fn new(
@@ -190,6 +198,7 @@ impl IOConfig {
         gcs: Option<GCSConfig>,
         http: Option<HTTPConfig>,
         unity: Option<UnityConfig>,
+        gravitino: Option<GravitinoConfig>,
         hf: Option<HuggingFaceConfig>,
     ) -> Self {
         Self {
@@ -199,18 +208,21 @@ impl IOConfig {
                 gcs: gcs.unwrap_or_default().config,
                 http: http.unwrap_or_default().config,
                 unity: unity.unwrap_or_default().config,
+                gravitino: gravitino.unwrap_or_default().config,
                 hf: hf.unwrap_or_default().config,
             },
         }
     }
 
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         s3=None,
         azure=None,
         gcs=None,
         http=None,
         unity=None,
+        gravitino=None,
         hf=None
     ))]
     pub fn replace(
@@ -220,6 +232,7 @@ impl IOConfig {
         gcs: Option<GCSConfig>,
         http: Option<HTTPConfig>,
         unity: Option<UnityConfig>,
+        gravitino: Option<GravitinoConfig>,
         hf: Option<HuggingFaceConfig>,
     ) -> Self {
         Self {
@@ -239,6 +252,9 @@ impl IOConfig {
                 unity: unity
                     .map(|unity| unity.config)
                     .unwrap_or_else(|| self.config.unity.clone()),
+                gravitino: gravitino
+                    .map(|gravitino| gravitino.config)
+                    .unwrap_or_else(|| self.config.gravitino.clone()),
                 hf: hf
                     .map(|hf| hf.config)
                     .unwrap_or_else(|| self.config.hf.clone()),
@@ -286,6 +302,13 @@ impl IOConfig {
     pub fn unity(&self) -> PyResult<UnityConfig> {
         Ok(UnityConfig {
             config: self.config.unity.clone(),
+        })
+    }
+
+    #[getter]
+    pub fn gravitino(&self) -> PyResult<GravitinoConfig> {
+        Ok(GravitinoConfig {
+            config: self.config.gravitino.clone(),
         })
     }
 
@@ -1182,6 +1205,92 @@ impl UnityConfig {
 }
 
 #[pymethods]
+impl GravitinoConfig {
+    #[new]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (endpoint=None, metalake_name=None, auth_type=None, username=None, password=None, token=None))]
+    pub fn new(
+        endpoint: Option<String>,
+        metalake_name: Option<String>,
+        auth_type: Option<String>,
+        username: Option<String>,
+        password: Option<String>,
+        token: Option<String>,
+    ) -> Self {
+        let default = crate::GravitinoConfig::default();
+        Self {
+            config: crate::GravitinoConfig {
+                endpoint: endpoint.or(default.endpoint),
+                metalake_name: metalake_name.or(default.metalake_name),
+                auth_type: auth_type.or(default.auth_type),
+                username: username.or(default.username),
+                password: password.map(Into::into).or(default.password),
+                token: token.map(Into::into).or(default.token),
+            },
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (endpoint=None, metalake_name=None, auth_type=None, username=None, password=None, token=None))]
+    pub fn replace(
+        &self,
+        endpoint: Option<String>,
+        metalake_name: Option<String>,
+        auth_type: Option<String>,
+        username: Option<String>,
+        password: Option<String>,
+        token: Option<String>,
+    ) -> Self {
+        Self {
+            config: crate::GravitinoConfig {
+                endpoint: endpoint.or_else(|| self.config.endpoint.clone()),
+                metalake_name: metalake_name.or_else(|| self.config.metalake_name.clone()),
+                auth_type: auth_type.or_else(|| self.config.auth_type.clone()),
+                username: username.or_else(|| self.config.username.clone()),
+                password: password
+                    .map(Into::into)
+                    .or_else(|| self.config.password.clone()),
+                token: token.map(Into::into).or_else(|| self.config.token.clone()),
+            },
+        }
+    }
+
+    pub fn __repr__(&self) -> String {
+        format!("{}", self.config)
+    }
+
+    #[getter]
+    pub fn endpoint(&self) -> Option<String> {
+        self.config.endpoint.clone()
+    }
+
+    #[getter]
+    pub fn metalake_name(&self) -> Option<String> {
+        self.config.metalake_name.clone()
+    }
+
+    #[getter]
+    pub fn auth_type(&self) -> Option<String> {
+        self.config.auth_type.clone()
+    }
+
+    #[getter]
+    pub fn username(&self) -> Option<String> {
+        self.config.username.clone()
+    }
+
+    #[getter]
+    pub fn password(&self) -> Option<String> {
+        self.config.password.as_ref().map(|s| s.as_string().clone())
+    }
+
+    #[getter]
+    pub fn token(&self) -> Option<String> {
+        self.config.token.as_ref().map(|s| s.as_string().clone())
+    }
+}
+
+#[pymethods]
 impl HuggingFaceConfig {
     #[new]
     #[pyo3(signature = (
@@ -1288,6 +1397,7 @@ impl_bincode_py_state_serialization!(AzureConfig);
 impl_bincode_py_state_serialization!(GCSConfig);
 impl_bincode_py_state_serialization!(HTTPConfig);
 impl_bincode_py_state_serialization!(UnityConfig);
+impl_bincode_py_state_serialization!(GravitinoConfig);
 impl_bincode_py_state_serialization!(HuggingFaceConfig);
 
 pub fn register_modules(parent: &Bound<PyModule>) -> PyResult<()> {
@@ -1297,6 +1407,7 @@ pub fn register_modules(parent: &Bound<PyModule>) -> PyResult<()> {
     parent.add_class::<HTTPConfig>()?;
     parent.add_class::<S3Credentials>()?;
     parent.add_class::<UnityConfig>()?;
+    parent.add_class::<GravitinoConfig>()?;
     parent.add_class::<HuggingFaceConfig>()?;
     parent.add_class::<IOConfig>()?;
     Ok(())

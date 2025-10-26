@@ -732,6 +732,37 @@ class UnityConfig:
         """Replaces values if provided, returning a new UnityConfig."""
         ...
 
+class GravitinoConfig:
+    """I/O configuration for Gravitino filesets."""
+
+    endpoint: str | None
+    metalake_name: str | None
+    auth_type: str | None
+    username: str | None
+    password: str | None
+    token: str | None
+
+    def __init__(
+        self,
+        endpoint: str | None,
+        metalake_name: str | None,
+        auth_type: str | None,
+        username: str | None,
+        password: str | None,
+        token: str | None,
+    ): ...
+    def replace(
+        self,
+        endpoint: str | None,
+        metalake_name: str | None,
+        auth_type: str | None,
+        username: str | None,
+        password: str | None,
+        token: str | None,
+    ) -> GravitinoConfig:
+        """Replaces values if provided, returning a new GravitinoConfig."""
+        ...
+
 class HuggingFaceConfig:
     """I/O configuration for accessing Hugging Face datasets.
 
@@ -781,6 +812,7 @@ class IOConfig:
     gcs: GCSConfig
     http: HTTPConfig
     unity: UnityConfig
+    gravitino: GravitinoConfig
     hf: HuggingFaceConfig
 
     def __init__(
@@ -790,6 +822,7 @@ class IOConfig:
         gcs: GCSConfig | None = None,
         http: HTTPConfig | None = None,
         unity: UnityConfig | None = None,
+        gravitino: GravitinoConfig | None = None,
         hf: HuggingFaceConfig | None = None,
     ): ...
     def replace(
@@ -799,6 +832,7 @@ class IOConfig:
         gcs: GCSConfig | None = None,
         http: HTTPConfig | None = None,
         unity: UnityConfig | None = None,
+        gravitino: GravitinoConfig | None = None,
         hf: HuggingFaceConfig | None = None,
     ) -> IOConfig:
         """Replaces values if provided, returning a new IOConfig."""

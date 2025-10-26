@@ -702,6 +702,7 @@ message IOConfig {
   HTTPConfig http = 4;
   UnityConfig unity = 5;
   HuggingFaceConfig hf = 6;
+  GravitinoConfig gravitino = 7;
 }
 
 message S3Config {
@@ -767,6 +768,15 @@ message HTTPConfig {
 message UnityConfig {
   optional string endpoint = 1;
   optional string token = 2;
+}
+
+message GravitinoConfig {
+  optional string endpoint = 1;
+  optional string metalake_name = 2;
+  optional string auth_type = 3;
+  optional string username = 4;
+  optional string password = 5;
+  optional string token = 6;
 }
 
 message HuggingFaceConfig {

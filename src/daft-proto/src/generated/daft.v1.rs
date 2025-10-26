@@ -1000,6 +1000,8 @@ pub struct IoConfig {
     pub unity: ::core::option::Option<UnityConfig>,
     #[prost(message, optional, tag = "6")]
     pub hf: ::core::option::Option<HuggingFaceConfig>,
+    #[prost(message, optional, tag = "7")]
+    pub gravitino: ::core::option::Option<GravitinoConfig>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct S3Config {
@@ -1114,6 +1116,21 @@ pub struct UnityConfig {
     #[prost(string, optional, tag = "1")]
     pub endpoint: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, optional, tag = "2")]
+    pub token: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GravitinoConfig {
+    #[prost(string, optional, tag = "1")]
+    pub endpoint: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "2")]
+    pub metalake_name: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "3")]
+    pub auth_type: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "4")]
+    pub username: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "5")]
+    pub password: ::core::option::Option<::prost::alloc::string::String>,
+    #[prost(string, optional, tag = "6")]
     pub token: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

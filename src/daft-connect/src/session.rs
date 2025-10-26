@@ -72,6 +72,7 @@ impl ConnectSession {
             mut gcs,
             mut http,
             unity,
+            gravitino,
             hf,
         } = get_context().io_config();
 
@@ -86,6 +87,7 @@ impl ConnectSession {
             gcs,
             http,
             unity,
+            gravitino,
             hf,
         })
     }
