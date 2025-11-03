@@ -9,7 +9,8 @@ dependencies = [
   "fsspec",
   "tqdm",
   "typing-extensions >= 4.0.0",
-  "packaging"
+  "packaging",
+  "apache-gravitino==1.0.0"
 ]
 description = "Distributed Dataframes for Multimodal Data"
 dynamic = ["version"]

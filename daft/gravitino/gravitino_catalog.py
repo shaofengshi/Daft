@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import dataclasses
 import warnings
-from typing import Any, Literal
+from typing import Literal
 from urllib.parse import urlparse
 
-import requests
-
 from daft.io import AzureConfig, IOConfig, S3Config
+from gravitino import GravitinoClient as OfficialGravitinoClient
+from gravitino import NameIdentifier
+from gravitino.exceptions.base import (
+    NoSuchCatalogException,
+    NoSuchSchemaException,
+    NotFoundException,
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -148,29 +153,20 @@ class GravitinoClient:
         self._password = password
         self._token = token
 
-        # Setup session with authentication
-        self._session = requests.Session()
-        if auth_type == "simple" and username:
-            if password:
-                self._session.auth = (username, password)
-            else:
-                self._session.headers.update({"X-Gravitino-User": username})
-        elif auth_type == "oauth2" and token:
-            self._session.headers.update({"Authorization": f"Bearer {token}"})
+        # Store connection parameters - create client lazily when needed
+        self._client = None
 
-    def _make_request(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
-        """Make HTTP request to Gravitino API."""
-        url = f"{self._endpoint}/api{path}"
-        response = self._session.request(method, url, **kwargs)
-        response.raise_for_status()
-        return response.json()
+    def _get_client(self) -> OfficialGravitinoClient:
+        """Get or create the Gravitino client."""
+        if self._client is None:
+            self._client = OfficialGravitinoClient(uri=self._endpoint, metalake_name=self._metalake_name)
+        return self._client
 
     def list_catalogs(self) -> list[str]:
         """List all available catalogs in the metalake."""
         try:
-            response = self._make_request("GET", f"/metalakes/{self._metalake_name}/catalogs")
-            identifiers = response.get("identifiers", [])
-            return [identifier.get("name", "") for identifier in identifiers if identifier.get("name")]
+            catalog_identifiers = self._get_client().list_catalogs()
+            return [ident.name() for ident in catalog_identifiers]
         except Exception as e:
             warnings.warn(f"Failed to list catalogs: {e}")
             return []
@@ -188,41 +184,26 @@ class GravitinoClient:
             Exception: If catalog is not found or cannot be loaded
         """
         try:
-            response = self._make_request("GET", f"/metalakes/{self._metalake_name}/catalogs/{catalog_name}")
-            catalog_data = response.get("catalog", {})
+            catalog = self._get_client().load_catalog(name=catalog_name)
 
             return GravitinoCatalog(
-                name=catalog_data.get("name", catalog_name),
-                type=catalog_data.get("type", ""),
-                provider=catalog_data.get("provider", ""),
-                properties=catalog_data.get("properties", {}),
+                name=catalog.name(),
+                type=catalog.type().value[0],
+                provider=catalog.provider(),
+                properties=catalog.properties(),
             )
 
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                raise Exception(f"Catalog {catalog_name} not found")
-            else:
-                raise Exception(f"Failed to load catalog {catalog_name}: {e}")
+        except NoSuchCatalogException:
+            raise Exception(f"Catalog {catalog_name} not found")
         except Exception as e:
             raise Exception(f"Failed to load catalog {catalog_name}: {e}")
 
     def list_schemas(self, catalog_name: str) -> list[str]:
         """List schemas in a catalog."""
         try:
-            response = self._make_request("GET", f"/metalakes/{self._metalake_name}/catalogs/{catalog_name}/schemas")
-
-            # Try new format with identifiers first
-            if "identifiers" in response:
-                identifiers = response.get("identifiers", [])
-                return [
-                    f"{catalog_name}.{identifier.get('name', '')}"
-                    for identifier in identifiers
-                    if identifier.get("name")
-                ]
-
-            # Fall back to old format for backward compatibility
-            schemas = response.get("schemas", [])
-            return [f"{catalog_name}.{schema.get('name', '')}" for schema in schemas if schema.get("name")]
+            catalog = self._get_client().load_catalog(name=catalog_name)
+            schema_identifiers = catalog.as_schemas().list_schemas()
+            return [f"{catalog_name}.{ident.name()}" for ident in schema_identifiers]
         except Exception as e:
             warnings.warn(f"Failed to list schemas for catalog {catalog_name}: {e}")
             return []
@@ -237,24 +218,18 @@ class GravitinoClient:
         catalog_name, schema_name_only = schema_name.split(".")
 
         try:
-            response = self._make_request(
-                "GET", f"/metalakes/{self._metalake_name}/catalogs/{catalog_name}/schemas/{schema_name_only}/tables"
-            )
+            catalog = self._get_client().load_catalog(name=catalog_name)
 
-            # Try new format with identifiers first
-            if "identifiers" in response:
-                identifiers = response.get("identifiers", [])
-                return [
-                    f"{catalog_name}.{schema_name_only}.{identifier.get('name', '')}"
-                    for identifier in identifiers
-                    if identifier.get("name")
-                ]
+            # Check if catalog type is relational
+            if catalog.type().value[0] != "relational":
+                warnings.warn(
+                    f"Catalog '{catalog_name}' is of type '{catalog.type().value[0]}', not 'relational'. Returning empty table list."
+                )
+                return []
 
-            # Fall back to old format for backward compatibility
-            tables = response.get("tables", [])
-            return [
-                f"{catalog_name}.{schema_name_only}.{table.get('name', '')}" for table in tables if table.get("name")
-            ]
+            schema = catalog.as_schemas().load_schema(schema_name=schema_name_only)
+            table_identifiers = schema.as_table_catalog().list_tables()
+            return [f"{catalog_name}.{schema_name_only}.{ident.name()}" for ident in table_identifiers]
         except Exception as e:
             warnings.warn(f"Failed to list tables for schema {schema_name}: {e}")
             return []
@@ -279,50 +254,63 @@ class GravitinoClient:
         catalog_name, schema_name, table_name_only = parts
 
         try:
-            response = self._make_request(
-                "GET",
-                f"/metalakes/{self._metalake_name}/catalogs/{catalog_name}/schemas/{schema_name}/tables/{table_name_only}",
-            )
-            table_data = response.get("table", {})
+            catalog = self._get_client().load_catalog(name=catalog_name)
 
-            # Handle Gravitino 1.0+ API format with storageLocations for tables
-            storage_locations = table_data.get("storageLocations", {})
-            properties = table_data.get("properties", {})
+            # Check if catalog type is relational
+            if catalog.type().value[0] != "relational":
+                raise Exception(
+                    f"Only relational catalog supports 'load_table' method, but catalog '{catalog_name}' is of type '{catalog.type().value[0]}'"
+                )
 
-            # Determine the storage location to use
+            schema = catalog.as_schemas().load_schema(schema_name=schema_name)
+            table_ident = NameIdentifier.of(schema_name, table_name_only)
+            table = schema.as_table_catalog().load_table(ident=table_ident)
+
+            properties = table.properties()
+
+            # Handle storage locations - try to get from table properties
             storage_location = ""
-            if storage_locations:
-                # Use the default location specified in properties, or fall back to "default" key
-                default_location_name = properties.get("default-location-name", "default")
-                storage_location = storage_locations.get(default_location_name, "")
 
-                # If default location not found, use the first available location
-                if not storage_location and storage_locations:
-                    storage_location = next(iter(storage_locations.values()))
-            else:
-                # Fallback to old API format for backward compatibility
-                storage_location = properties.get("location", "")
+            # Check for location in properties (common pattern)
+            if "location" in properties:
+                storage_location = properties["location"]
+            elif "path" in properties:
+                storage_location = properties["path"]
+            elif "warehouse" in properties:
+                # For Iceberg tables, warehouse might be the base location
+                storage_location = properties["warehouse"]
 
             # Convert Gravitino file URL format to Daft-compatible format
             # Gravitino returns "file:/path" but Daft expects "file:///path"
             if storage_location.startswith("file:/") and not storage_location.startswith("file:///"):
                 storage_location = storage_location.replace("file:/", "file:///", 1)
 
+            # Determine table format from properties or provider
+            table_format = properties.get("format", "ICEBERG")
+            if not table_format:
+                # Try to infer from provider or other properties
+                provider = getattr(table, "provider", lambda: "")()
+                if provider.upper() in ["ICEBERG", "HIVE", "DELTA"]:
+                    table_format = provider.upper()
+                else:
+                    table_format = "ICEBERG"  # Default fallback
+
             table_info = GravitinoTableInfo(
-                name=table_data.get("name", table_name_only),
+                name=table.name(),
                 catalog=catalog_name,
                 schema=schema_name,
-                table_type=table_data.get("provider", ""),
+                table_type=getattr(table, "provider", lambda: "")(),
                 storage_location=storage_location,
-                format=properties.get("format", "ICEBERG"),
+                format=table_format,
                 properties=properties,
             )
 
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                raise Exception(f"Table {table_name} not found")
-            else:
-                raise Exception(f"Failed to load table {table_name}: {e}")
+        except NotFoundException:
+            raise Exception(f"Table {table_name} not found")
+        except NoSuchSchemaException:
+            raise Exception(f"Schema {catalog_name}.{schema_name} not found")
+        except NoSuchCatalogException:
+            raise Exception(f"Catalog {catalog_name} not found")
         except Exception as e:
             raise Exception(f"Failed to load table {table_name}: {e}")
 
@@ -351,50 +339,36 @@ class GravitinoClient:
         catalog_name, schema_name, fileset_name_only = parts
 
         try:
-            response = self._make_request(
-                "GET",
-                f"/metalakes/{self._metalake_name}/catalogs/{catalog_name}/schemas/{schema_name}/filesets/{fileset_name_only}",
-            )
-            fileset_data = response.get("fileset", {})
+            catalog = self._get_client().load_catalog(name=catalog_name)
 
-            # Handle Gravitino 1.0+ API format with storageLocations
-            storage_locations = fileset_data.get("storageLocations", {})
-            properties = fileset_data.get("properties", {})
+            # Check if catalog type is fileset
+            if catalog.type().value[0] != "fileset":
+                raise Exception(
+                    f"Only fileset catalog supports 'load_fileset' method, but catalog '{catalog_name}' is of type '{catalog.type().value[0]}'"
+                )
 
-            # Determine the storage location to use
-            storage_location = ""
-            if storage_locations:
-                # Use the default location specified in properties, or fall back to "default" key
-                default_location_name = properties.get("default-location-name", "default")
-                storage_location = storage_locations.get(default_location_name, "")
+            fileset_ident = NameIdentifier.of(schema_name, fileset_name_only)
+            fileset = catalog.as_fileset_catalog().load_fileset(ident=fileset_ident)
 
-                # If default location not found, use the first available location
-                if not storage_location and storage_locations:
-                    storage_location = next(iter(storage_locations.values()))
-            else:
-                # Fallback to old API format for backward compatibility
-                storage_location = properties.get("location", "")
+            properties = fileset.properties()
+
+            # Get storage location from fileset
+            storage_locations = fileset.storage_locations()
+            # Use the first storage location from the dictionary
+            storage_location = next(iter(storage_locations.values())) if storage_locations else ""
 
             # Convert Gravitino URL formats to Daft-compatible formats
             # Gravitino returns "file:/path" but Daft expects "file:///path"
             if storage_location.startswith("file:/") and not storage_location.startswith("file:///"):
                 storage_location = storage_location.replace("file:/", "file:///", 1)
 
-            fileset_catalog = self.load_catalog(catalog_name)
-            catalog_properties = fileset_catalog.properties
-
-            # Merge catalog properties into fileset properties
-            # Fileset properties take precedence over catalog properties
-            merged_properties = catalog_properties.copy()
-            merged_properties.update(properties)
-
             fileset_info = GravitinoFilesetInfo(
-                name=fileset_data.get("name", fileset_name_only),
+                name=fileset.name(),
                 catalog=catalog_name,
                 schema=schema_name,
-                fileset_type=fileset_data.get("type", "EXTERNAL"),
+                fileset_type=fileset.type().value,
                 storage_location=storage_location,
-                properties=merged_properties,
+                properties=properties,
             )
 
             # Create IO config from fileset properties
